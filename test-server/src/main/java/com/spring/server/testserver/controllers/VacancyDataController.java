@@ -20,7 +20,6 @@ public class VacancyDataController {
 		this.vacancyDataService = vacancyDataService;
 	}
 
-
 	@GetMapping("/vacancies")
 	public List<VacancyData> getVacancies(){
 		return vacancyDataService.getVacancies();

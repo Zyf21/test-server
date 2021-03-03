@@ -17,9 +17,9 @@ public class InitService {
 	}
 
 	@PostConstruct
-	public void init() throws IOException, JAXBException, ParseException {
+	public void init() throws IOException, JAXBException, ParseException, InterruptedException {
 
-		hhVacanciesService.getVacancies();
+		hhVacanciesService.getVacancies("Java","Беларусь");
 	}
 
 }

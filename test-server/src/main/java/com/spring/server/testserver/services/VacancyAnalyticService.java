@@ -1,12 +1,13 @@
 package com.spring.server.testserver.services;
 
-import com.spring.server.testserver.controllers.VacancyAnalyticController;
 import com.spring.server.testserver.domain.vacancy.VacancyAnalytic;
 import com.spring.server.testserver.repositories.VacancyAnalyticRepository;
+import org.json.simple.parser.ParseException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
+import java.io.IOException;
+import java.net.URLDecoder;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -14,20 +15,31 @@ import java.util.stream.Collectors;
 public class VacancyAnalyticService {
 
 	private final VacancyAnalyticRepository vacancyAnalyticRepository;
+	private final HHVacanciesService hhVacanciesService;
 
-	public VacancyAnalyticService(VacancyAnalyticRepository vacancyAnalyticRepository) {
+	@Autowired
+	public VacancyAnalyticService(VacancyAnalyticRepository vacancyAnalyticRepository,
+								  HHVacanciesService hhVacanciesService) {
 		this.vacancyAnalyticRepository = vacancyAnalyticRepository;
+		this.hhVacanciesService = hhVacanciesService;
 	}
 
 	public List<VacancyAnalytic> getAnalytic() {
-		return sortMap(vacancyAnalyticRepository.findAll());
+
+		List<VacancyAnalytic> vacancyAnalytics = new ArrayList<>();
+		for (VacancyAnalytic vacancyAnalytic : vacancyAnalyticRepository.findAll()) {
+			sortMap(vacancyAnalytic);
+		}
+		return vacancyAnalytics;
 	}
 
-	public List<VacancyAnalytic> sortMap (List<VacancyAnalytic> vacancyAnalyticList) {
+	public VacancyAnalytic getAnalyticByName (String mainSkill, String cityName) throws ParseException, InterruptedException, IOException {
+		String decode = URLDecoder.decode(mainSkill, "UTF-8");
 
-		List<VacancyAnalytic> newList = new ArrayList<>();
-		for (VacancyAnalytic vacancyAnalytic : vacancyAnalyticList) {
+		return  sortMap(hhVacanciesService.getVacancies(decode, cityName));
+	}
 
+	public VacancyAnalytic sortMap (VacancyAnalytic vacancyAnalytic) {
 
 			Map<String, Long> sortedlistSkills = vacancyAnalytic.getSkills().entrySet()
 					.stream()
@@ -37,17 +49,15 @@ public class VacancyAnalyticService {
 							Map.Entry::getValue,
 							(oldValue, newValue) -> oldValue, LinkedHashMap::new));
 
-
-			newList.add(VacancyAnalytic.builder()
+			return VacancyAnalytic.builder()
+					.id(vacancyAnalytic.getId())
+					.mainSkill(vacancyAnalytic.getMainSkill())
 					.vacancyCount(vacancyAnalytic.getVacancyCount())
 					.levels(vacancyAnalytic.getLevels())
 					.createAt(vacancyAnalytic.getCreateAt())
 					.skills(sortedlistSkills)
-					.build());
-
-		}
-		return newList;
-
-
+					.build();
 	}
+
+
 }

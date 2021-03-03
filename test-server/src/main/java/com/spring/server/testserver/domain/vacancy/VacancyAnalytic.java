@@ -21,6 +21,7 @@ public class VacancyAnalytic {
 	private Long id;
 	private Long vacancyCount;
 	private Instant createAt;
+	private String mainSkill;
 	@ElementCollection
 	private Map<String, Long> skills;
 	@ElementCollection

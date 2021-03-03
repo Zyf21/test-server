@@ -1,27 +1,35 @@
 package com.spring.server.testserver.services;
 
 import com.spring.server.testserver.domain.vacancy.VacancyAnalytic;
+import com.spring.server.testserver.domain.vacancy.VacancyDTO;
 import com.spring.server.testserver.domain.vacancy.VacancyData;
 import com.spring.server.testserver.repositories.VacancyAnalyticRepository;
 import com.spring.server.testserver.repositories.VacancyDataRepository;
+import com.zaxxer.hikari.util.ConcurrentBag;
 import org.apache.http.client.fluent.Content;
 import org.apache.http.client.fluent.Request;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Service
 public class HHVacanciesService {
 
 	private final VacancyAnalyticRepository vacancyAnalyticRepository;
 	private final VacancyDataRepository vacancyDataRepository;
+
 
 	public HHVacanciesService(final VacancyAnalyticRepository vacancyAnalyticRepository,
 							  final VacancyDataRepository vacancyDataRepository) {
@@ -30,25 +38,20 @@ public class HHVacanciesService {
 	}
 
 
-	public void getVacancies() throws IOException, ParseException {
-		long startTime = System.currentTimeMillis();
+	public VacancyAnalytic getVacancies(String mainSkill, String cityName) throws IOException, ParseException, InterruptedException {
+
 		List<String> vacantiesIds = new ArrayList<>();
-		List<String> vacantiesNames= new ArrayList<>();
-
-		String mainSkill = "Java";
-
-		Map<String, List<String>> mapa = new HashMap<>();
-		final Content getPage = Request.Get("https://api.hh.ru/vacancies?text=" + mainSkill + "&area=16&search_field=name&per_page=100")
+		String cityId = getCityId(cityName);
+		final Content getPage = Request.Get("https://api.hh.ru/vacancies?text=" + mainSkill + "&area=" + cityId + "&search_field=name&per_page=100")
 				.execute().returnContent();
-
 
 		Object firstPage = new JSONParser().parse(getPage.asString());
 		JSONObject firstPageJson = (JSONObject) firstPage;
 		JSONArray vacanciesArray = (JSONArray) firstPageJson.get("items");
 		Long pagesCount = (Long) firstPageJson.get("pages");
 
-		for(int i =1; i <= pagesCount; i++){
-			final Content getPaginationPage = Request.Get("https://api.hh.ru/vacancies?text=" + mainSkill + "&area=16&search_field=name&per_page=100&page=" + i)
+		for (int i = 1; i <= pagesCount; i++) {
+			final Content getPaginationPage = Request.Get("https://api.hh.ru/vacancies?text=" + mainSkill + "&area=" + cityId + "&search_field=name&per_page=100&page=" + i)
 					.execute().returnContent();
 			Object paginationPage = new JSONParser().parse(getPaginationPage.asString());
 			JSONObject paginationPageJson = (JSONObject) paginationPage;
@@ -57,96 +60,26 @@ public class HHVacanciesService {
 
 		}
 
-
-		for (Object vacancy : vacanciesArray){
+		for (Object vacancy : vacanciesArray) {
 			JSONObject vacancyJson = (JSONObject) vacancy;
 			vacantiesIds.add(vacancyJson.get("id").toString());
 		}
 
-		int t = 1;
-
-		List<VacancyData> vacancyDataList = new ArrayList<>();
 		List<String> listSkills = new ArrayList<>();
 		Set<String> unicSkills = new HashSet<>();
-		List<String> namesList = new ArrayList<>();
-		for (String s : vacantiesIds){
+		long startTime = System.currentTimeMillis();
 
-			final Content vacancy = Request.Get("https://api.hh.ru/vacancies/" + s)
-					.execute().returnContent();
+		VacancyDTO vacancyDTO = getVacanciesData(vacantiesIds);
+		vacancyDataRepository.saveAll(vacancyDTO.getVacancyDataList());
 
-			Object vacancyObject = new JSONParser().parse(vacancy.asString());
-			JSONObject vacancyJson = (JSONObject) vacancyObject;
+		long endTime = System.currentTimeMillis();
 
-			String vacancyName = (String) vacancyJson.get("name");
-			namesList.add(vacancyName);
-			String url = (String) vacancyJson.get("alternate_url");
+		System.out.println( (endTime-startTime) / 1000 );
 
-			JSONObject cityObject = (JSONObject) vacancyJson.get("area");
-			String city = (String) cityObject.get("name");
-
-			JSONObject employerObject = (JSONObject) vacancyJson.get("employer");
-			String employerName = (String) employerObject.get("name");
-
-
-//			System.out.println(employerName + city);
-
-			vacantiesNames.add(vacancyName + t);
-
-			List<String> skills= new ArrayList<>();
-			JSONArray skillsArray = (JSONArray) vacancyJson.get("key_skills");
-
-			for (Object skill : skillsArray){
-				JSONObject skillObject= (JSONObject) skill;
-				skills.add(skillObject.get("name").toString());
-			}
-			vacancyDataList.add(VacancyData.builder()
-					.url(url)
-					.name(vacancyName)
-					.companyName(employerName)
-					.skills(skills)
-					.city(city)
-					.createAt(Instant.now().truncatedTo(ChronoUnit.DAYS))
-					.build());
-			vacancyDataRepository.save(VacancyData.builder()
-					.url(url)
-					.name(vacancyName)
-					.companyName(employerName)
-					.skills(skills)
-					.city(city)
-					.createAt(Instant.now().truncatedTo(ChronoUnit.DAYS))
-					.build());
-
-
-			mapa.put(vacancyName+" " + t, skills);
-			t++;
-
-
-		}
-
-
-
-
-
-		for (VacancyData vacancyData : vacancyDataList){
-
-			System.out.println(vacancyData.getSkills().size() +" " +vacancyData.getUrl());
+		for (VacancyData vacancyData : vacancyDTO.getVacancyDataList()){
 			listSkills.addAll(vacancyData.getSkills());
 			unicSkills.addAll(vacancyData.getSkills());
-
 		}
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 		Map<String, Long> countinglistSkills =new HashMap<>();
 		for(String skill :unicSkills){
@@ -163,97 +96,129 @@ public class HHVacanciesService {
 			}
 		}
 
-//		Map<String, Long> sortedlistSkills = counting.entrySet()
-//				.stream()
-//				.sorted(Map.Entry.comparingByValue(Comparator.reverseOrder()))
-//				.collect(Collectors.toMap(
-//						Map.Entry::getKey,
-//						Map.Entry::getValue,
-//						(oldValue, newValue) -> oldValue, LinkedHashMap::new));
-
-
-
-		for (Map.Entry<String, Long> skill :countinglistSkills.entrySet()){
-			System.out.println( " "+ skill.getKey() + "  " + skill.getValue());
-
-		}
-
-
-
-
-
-		int i = 1;
-		for (Map.Entry<String, List<String>> name :mapa.entrySet()){
-			System.out.println(i + " "+ name.getKey() + "  " + name.getValue());
-			i++;
-		}
-		long endTime = System.currentTimeMillis();
-		System.out.println((endTime - startTime)/1000 +" секунд  Всего вакансий:" +vacantiesIds.size() );
-		System.out.println(vacancyDataList.size());
-		int p = 1;
-//		for (String s : listSkills){
-//			System.out.println(s + p);
-//			p++;
-//		}
-
-
-//		Map<String, Long> levelsList = new HashMap<>();
-//		levelsList.put("Lead Java Developer", 0L);
-//		levelsList.put("Senior Java Developer", 0L);
-//		levelsList.put("Middle Java Developer", 0L);
-//		levelsList.put("Junior Java Developer", 0L);
-
-
-		Map<String, Long> levelsList = new HashMap<>();
-		levelsList.put("Lead Developer", 0L);
-		levelsList.put("Senior Developer", 0L);
-		levelsList.put("Middle Developer", 0L);
-		levelsList.put("Junior Developer", 0L);
-
-
-
-		for (String level :namesList){
-
-			if(level.toLowerCase().contains("lead")){
-				Long count = levelsList.get("Lead Developer");
-				count++;
-				levelsList.put("Lead Developer", count);
-			}
-			if(level.toLowerCase().contains("senior")){
-				Long count = levelsList.get("Senior Developer");
-				count++;
-				levelsList.put("Senior Developer", count);
-			}
-			if(level.toLowerCase().contains("middle") || level.contains(mainSkill + " Developer") || level.toLowerCase().contains(mainSkill.toLowerCase() + " engineer")){
-				Long count = levelsList.get("Middle Developer");
-				count++;
-				levelsList.put("Middle Developer", count);
-			}
-			if(level.toLowerCase().contains("junior") || level.toLowerCase().contains("trainee")){
-				Long count = levelsList.get("Junior Developer");
-				count++;
-				levelsList.put("Junior Developer", count);
-			}
-
-		}
-
-
-		for (Map.Entry<String, Long> name :levelsList.entrySet()){
-			System.out.println( " "+ name.getKey() + "  " + name.getValue());
-
-		}
-		System.out.println(namesList.size());
 		VacancyAnalytic vacancyAnalytic = VacancyAnalytic.builder()
-				.vacancyCount((long) namesList.size())
-				.levels(levelsList)
+				.vacancyCount((long) vacancyDTO.getNamesList().size())
+				.levels(getLevelList(vacancyDTO.getNamesList(), mainSkill))
 				.createAt(Instant.now().truncatedTo(ChronoUnit.DAYS))
 				.skills(countinglistSkills)
+				.mainSkill(mainSkill)
+				.build();
+		vacancyAnalyticRepository.save(vacancyAnalytic);
+		return vacancyAnalytic;
+
+	}
+
+	public Map<String, Long> getLevelList(List<String> nameList, String mainSkill){
+
+		Map<String, Long> levelsList = new HashMap<>();
+		levelsList.put("Lead", 0L);
+		levelsList.put("Senior", 0L);
+		levelsList.put("Middle", 0L);
+		levelsList.put("Junior", 0L);
+
+		for (String level : nameList){
+
+			if(level.toLowerCase().contains("lead")){
+				Long count = levelsList.get("Lead");
+				count++;
+				levelsList.put("Lead", count);
+			}
+			if(level.toLowerCase().contains("senior")){
+				Long count = levelsList.get("Senior");
+				count++;
+				levelsList.put("Senior", count);
+			}
+			if(level.toLowerCase().contains("middle") || level.contains(mainSkill + " Developer") || level.toLowerCase().contains(mainSkill.toLowerCase() + " engineer")){
+				Long count = levelsList.get("Middle");
+				count++;
+				levelsList.put("Middle", count);
+			}
+			if(level.toLowerCase().contains("junior") || level.toLowerCase().contains("trainee")){
+				Long count = levelsList.get("Junior");
+				count++;
+				levelsList.put("Junior", count);
+			}
+
+		}
+		return levelsList;
+
+	}
+
+	public VacancyDTO getVacanciesData (List<String> vacanciesIds) throws InterruptedException {
+
+		List<VacancyData> vacancyDataList = new ArrayList<>();
+		List<String> namesList = new ArrayList<>();
+		ExecutorService executor = Executors.newFixedThreadPool(80);
+		List<Callable<Object>> tasks = new ArrayList<>();
+		for (String vacancyId :vacanciesIds) {
+			tasks.add(new Callable<Object>() {
+				public Object call() throws Exception {
+
+					final Content vacancy = Request.Get("https://api.hh.ru/vacancies/" + vacancyId)
+							.execute().returnContent();
+
+					Object vacancyObject = new JSONParser().parse(vacancy.asString());
+					JSONObject vacancyJson = (JSONObject) vacancyObject;
+
+					String vacancyName = (String) vacancyJson.get("name");
+					namesList.add(vacancyName);
+					String url = (String) vacancyJson.get("alternate_url");
+
+					JSONObject cityObject = (JSONObject) vacancyJson.get("area");
+					String city = (String) cityObject.get("name");
+
+					JSONObject employerObject = (JSONObject) vacancyJson.get("employer");
+					String employerName = (String) employerObject.get("name");
+
+					List<String> skills= new ArrayList<>();
+					JSONArray skillsArray = (JSONArray) vacancyJson.get("key_skills");
+
+					for (Object skill : skillsArray){
+						JSONObject skillObject= (JSONObject) skill;
+						skills.add(skillObject.get("name").toString());
+					}
+
+					vacancyDataList.add(VacancyData.builder()
+							.url(url)
+							.name(vacancyName)
+							.companyName(employerName)
+							.skills(skills)
+							.city(city)
+							.createAt(Instant.now().truncatedTo(ChronoUnit.DAYS))
+							.build());
+
+					return null;
+				}
+			});
+		}
+
+		executor.invokeAll(tasks);
+		executor.shutdown();
+
+		return VacancyDTO.builder()
+				.vacancyDataList(vacancyDataList)
+				.namesList(namesList)
 				.build();
 
-		System.out.println(vacancyAnalytic);
-		vacancyAnalyticRepository.save(vacancyAnalytic);
-
 	}
 
+	public String getCityId (String cityName){
+		Map<String,String> namesMap = new HashMap<>();
+		namesMap.put("Беларусь", "16");
+		namesMap.put("Брест","1007");
+		namesMap.put("Брестская область","2233");
+		namesMap.put("Витебск","1005");
+		namesMap.put("Витебская область","2234");
+		namesMap.put("Гомель","1003");
+		namesMap.put("Гомельская область","2235");
+		namesMap.put("Гродненская область","2236");
+		namesMap.put("Гродно","1006");
+		namesMap.put("Минск","1002");
+		namesMap.put("Минская область","2237");
+		namesMap.put("Могилев","1004");
+		namesMap.put("Могилевская область","2238");
+
+		return namesMap.get(cityName);
 	}
+}
 
