@@ -2,6 +2,7 @@ package com.spring.server.testserver.services;
 
 import com.spring.server.testserver.domain.vacancy.VacancyAnalytic;
 import com.spring.server.testserver.repositories.VacancyAnalyticRepository;
+import lombok.extern.log4j.Log4j2;
 import org.json.simple.parser.ParseException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -11,6 +12,7 @@ import java.net.URLDecoder;
 import java.util.*;
 import java.util.stream.Collectors;
 
+@Log4j2
 @Service
 public class VacancyAnalyticService {
 
@@ -28,15 +30,30 @@ public class VacancyAnalyticService {
 
 		List<VacancyAnalytic> vacancyAnalytics = new ArrayList<>();
 		for (VacancyAnalytic vacancyAnalytic : vacancyAnalyticRepository.findAll()) {
-			sortMap(vacancyAnalytic);
+			vacancyAnalytics.add(sortMap(vacancyAnalytic));
 		}
+//		Optional <VacancyAnalytic> vacancyAnalytic =vacancyAnalyticRepository.findOne();
+//		if (vacancyAnalytic.isPresent()){
+//			System.out.println("1111");
+//		}else {
+//			System.out.println("222");
+//		}
+
 		return vacancyAnalytics;
 	}
 
 	public VacancyAnalytic getAnalyticByName (String mainSkill, String cityName) throws ParseException, InterruptedException, IOException {
 		String decode = URLDecoder.decode(mainSkill, "UTF-8");
+//		vacancyAnalyticRepository.save(sortMap(hhVacanciesService.getVacancies(decode, cityName)));
 
-		return  sortMap(hhVacanciesService.getVacancies(decode, cityName));
+		//return  sortMap(hhVacanciesService.getVacancies(decode, cityName));
+		return  sortMap(hhVacanciesService.getAnalytic(decode, cityName));
+	}
+
+
+	public List<VacancyAnalytic> getAnalyticListByNameAndCity(String mainSkill, String cityName){
+		log.debug("getAnalyticListByNameAndCity: mainSkill = {}, cityName = {}", mainSkill, cityName);
+		return vacancyAnalyticRepository.findAllByMainSkillAndCity(mainSkill, cityName);
 	}
 
 	public VacancyAnalytic sortMap (VacancyAnalytic vacancyAnalytic) {
@@ -56,6 +73,7 @@ public class VacancyAnalyticService {
 					.levels(vacancyAnalytic.getLevels())
 					.createAt(vacancyAnalytic.getCreateAt())
 					.skills(sortedlistSkills)
+					.city(vacancyAnalytic.getCity())
 					.build();
 	}
 

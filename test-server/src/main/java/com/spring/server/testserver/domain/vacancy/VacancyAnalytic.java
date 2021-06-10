@@ -22,6 +22,7 @@ public class VacancyAnalytic {
 	private Long vacancyCount;
 	private Instant createAt;
 	private String mainSkill;
+	private String city;
 	@ElementCollection
 	private Map<String, Long> skills;
 	@ElementCollection

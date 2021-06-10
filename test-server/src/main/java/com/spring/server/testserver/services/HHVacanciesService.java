@@ -6,6 +6,7 @@ import com.spring.server.testserver.domain.vacancy.VacancyData;
 import com.spring.server.testserver.repositories.VacancyAnalyticRepository;
 import com.spring.server.testserver.repositories.VacancyDataRepository;
 import com.zaxxer.hikari.util.ConcurrentBag;
+import lombok.extern.log4j.Log4j2;
 import org.apache.http.client.fluent.Content;
 import org.apache.http.client.fluent.Request;
 import org.json.simple.JSONArray;
@@ -23,7 +24,7 @@ import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-
+@Log4j2
 @Service
 public class HHVacanciesService {
 
@@ -39,8 +40,9 @@ public class HHVacanciesService {
 
 
 	public VacancyAnalytic getVacancies(String mainSkill, String cityName) throws IOException, ParseException, InterruptedException {
+		log.debug("getVacancies: mainSkill = {}, cityName = {}", mainSkill, cityName);
 
-		List<String> vacantiesIds = new ArrayList<>();
+		//List<String> vacantiesIds = new ArrayList<>();
 		String cityId = getCityId(cityName);
 		final Content getPage = Request.Get("https://api.hh.ru/vacancies?text=" + mainSkill + "&area=" + cityId + "&search_field=name&per_page=100")
 				.execute().returnContent();
@@ -60,6 +62,7 @@ public class HHVacanciesService {
 
 		}
 
+		List<String> vacantiesIds = new ArrayList<>();
 		for (Object vacancy : vacanciesArray) {
 			JSONObject vacancyJson = (JSONObject) vacancy;
 			vacantiesIds.add(vacancyJson.get("id").toString());
@@ -74,7 +77,7 @@ public class HHVacanciesService {
 
 		long endTime = System.currentTimeMillis();
 
-		System.out.println( (endTime-startTime) / 1000 );
+		System.out.println( (endTime-startTime) / 1000 + " seconds");
 
 		for (VacancyData vacancyData : vacancyDTO.getVacancyDataList()){
 			listSkills.addAll(vacancyData.getSkills());
@@ -82,7 +85,95 @@ public class HHVacanciesService {
 		}
 
 		Map<String, Long> countinglistSkills =new HashMap<>();
-		for(String skill :unicSkills){
+		for(String skill : unicSkills){
+			countinglistSkills.put(skill, 0L);
+		}
+
+		for(String skill : listSkills){
+			Long countSite = countinglistSkills.get(skill);
+			if (countSite == null) {
+				countinglistSkills.put(skill, 0L);
+			} else {
+				countSite++;
+				countinglistSkills.put(skill, countSite);
+			}
+		}
+		System.out.println(cityName);
+		VacancyAnalytic vacancyAnalytic = VacancyAnalytic.builder()
+				.vacancyCount((long) vacancyDTO.getNamesList().size())
+				.levels(getLevelList(vacancyDTO.getNamesList(), mainSkill))
+				.createAt(Instant.now().truncatedTo(ChronoUnit.DAYS))
+				.skills(countinglistSkills)
+				.mainSkill(mainSkill)
+				.city(cityName)
+				.build();
+		log.debug("getVacancies: vacancyAnalytic = {}", vacancyAnalytic);
+		//vacancyAnalyticRepository.save(vacancyAnalytic);
+		return vacancyAnalytic;
+
+	}
+
+
+
+	public List<String> getVacanciesIds(String mainSkill, String cityName)  {
+		//List<String> vacantiesIds = new ArrayList<>();
+		String cityId = getCityId(cityName);
+		List<String> vacantiesIds = new ArrayList<>();
+		try {
+
+
+		final Content getPage = Request.Get("https://api.hh.ru/vacancies?text=" + mainSkill + "&area=" + cityId + "&search_field=name&per_page=100")
+				.execute().returnContent();
+
+		Object firstPage = new JSONParser().parse(getPage.asString());
+		JSONObject firstPageJson = (JSONObject) firstPage;
+		JSONArray vacanciesArray = (JSONArray) firstPageJson.get("items");
+		Long pagesCount = (Long) firstPageJson.get("pages");
+
+		for (int i = 1; i <= pagesCount; i++) {
+			final Content getPaginationPage = Request.Get("https://api.hh.ru/vacancies?text=" + mainSkill + "&area=" + cityId + "&search_field=name&per_page=100&page=" + i)
+					.execute().returnContent();
+			Object paginationPage = new JSONParser().parse(getPaginationPage.asString());
+			JSONObject paginationPageJson = (JSONObject) paginationPage;
+			JSONArray vacanciesPaginationArray = (JSONArray) paginationPageJson.get("items");
+			vacanciesArray.addAll(vacanciesPaginationArray);
+
+		}
+
+
+		for (Object vacancy : vacanciesArray) {
+			JSONObject vacancyJson = (JSONObject) vacancy;
+			vacantiesIds.add(vacancyJson.get("id").toString());
+		}
+		} catch (ParseException | IOException e) {
+			e.printStackTrace();
+		}
+		return vacantiesIds;
+
+	}
+	public VacancyDTO getVacancyData(String mainSkill, String cityName) {
+		List<String> vacantiesIds = getVacanciesIds(mainSkill,cityName);
+		return getVacanciesData(vacantiesIds);
+	}
+
+
+	public VacancyAnalytic getAnalytic(String mainSkill, String cityName)  {
+		log.debug("getAnalytic: mainSkill = {}, cityName = {}", mainSkill, cityName);
+		List<String> listSkills = new ArrayList<>();
+		Set<String> unicSkills = new HashSet<>();
+		long startTime = System.currentTimeMillis();
+		VacancyDTO vacancyDTO = getVacancyData(mainSkill,cityName);
+		long endTime = System.currentTimeMillis();
+
+		System.out.println( (endTime-startTime) / 1000 + " seconds");
+
+		for (VacancyData vacancyData : vacancyDTO.getVacancyDataList()){
+			listSkills.addAll(vacancyData.getSkills());
+			unicSkills.addAll(vacancyData.getSkills());
+		}
+
+		Map<String, Long> countinglistSkills =new HashMap<>();
+		for(String skill : unicSkills){
 			countinglistSkills.put(skill, 0L);
 		}
 
@@ -102,9 +193,12 @@ public class HHVacanciesService {
 				.createAt(Instant.now().truncatedTo(ChronoUnit.DAYS))
 				.skills(countinglistSkills)
 				.mainSkill(mainSkill)
+				.city(cityName)
 				.build();
+		log.debug("getVacancies: vacancyAnalytic = {}", vacancyAnalytic);
 		vacancyAnalyticRepository.save(vacancyAnalytic);
 		return vacancyAnalytic;
+
 
 	}
 
@@ -144,7 +238,7 @@ public class HHVacanciesService {
 
 	}
 
-	public VacancyDTO getVacanciesData (List<String> vacanciesIds) throws InterruptedException {
+	public VacancyDTO getVacanciesData (List<String> vacanciesIds) {
 
 		List<VacancyData> vacancyDataList = new ArrayList<>();
 		List<String> namesList = new ArrayList<>();
@@ -192,7 +286,11 @@ public class HHVacanciesService {
 			});
 		}
 
-		executor.invokeAll(tasks);
+		try {
+			executor.invokeAll(tasks);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
 		executor.shutdown();
 
 		return VacancyDTO.builder()

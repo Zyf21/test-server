@@ -17,6 +17,9 @@ public class VacancyDataService {
 
 
 	public List<VacancyData> getVacancies (){
+	//	VacancyData vacancyData = vacancyDataRepository.findAll().get(40);
+	//	System.out.println(vacancyData);
+
 		return vacancyDataRepository.findAll();
 	}
 
